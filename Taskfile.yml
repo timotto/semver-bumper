@@ -1,0 +1,25 @@
+# https://taskfile.dev
+
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+  sp: {cmds: [task: set-pipeline]}
+
+  set-pipeline:
+    cmds:
+    - fly -t "$FLY_TARGET" set-pipeline -p semver-bumper -c ci/pipeline.yml
+    silent: true
+
+  test:
+    cmds:
+    - go test ./...
+
+  gen:
+    cmds:
+    - go generate ./...
+
+  run:
+    cmds:
+    - go run ./cmd/bumper {{.CLI_ARGS}}

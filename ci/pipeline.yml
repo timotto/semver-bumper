@@ -1,0 +1,234 @@
+meta:
+  repo: &repo
+    type: git
+    icon: github
+    webhook_token: ((webhook_token))
+    check_every: 24h
+  repo_source: &repo_source
+    uri: git@github.com:timotto/semver-bumper.git
+    branch: main
+    private_key: ((github.private_key))
+
+  artifact: &artifact
+    type: s3
+    icon: content-save
+  artifact_source: &artifact_source
+    access_key_id: ((ci-artifacts.access_key_id))
+    bucket: ((ci-artifacts.bucket))
+    region_name: ((ci-artifacts.region))
+    secret_access_key: ((ci-artifacts.secret_access_key))
+
+  build_task_config: &build_task_config
+    platform: linux
+    image_resource:
+      type: registry-image
+      source:
+        repository: golang
+        tag: alpine
+
+  rc_task_config: &rc_task_config
+    platform: linux
+    image_resource:
+      type: registry-image
+      source:
+        repository: alpine
+        tag: "3.14"
+
+jobs:
+- name: build
+  serial: true
+  serial_groups: [ version ]
+  plan:
+  - in_parallel:
+    - get: source-code
+      trigger: true
+
+  - task: build
+    config:
+      <<: *build_task_config
+      inputs:
+      - name: source-code
+      outputs:
+      - name: artifact
+      caches:
+      - path: caches/apk
+      - path: caches/gopath
+      - path: caches/gocache
+      params:
+        NAME: semver-bumper
+        # PLATFORMS: darwin/amd64 darwin/arm64 linux/amd64 linux/arm linux/arm64 windows/amd64 windows/arm windows/arm64
+        PLATFORMS: darwin/amd64 linux/amd64 windows/amd64
+
+      run:
+        path: sh
+        args:
+        - -ec
+        - |
+          set -o pipefail
+
+          export GOPATH=$PWD/caches/gopath
+          export GOCACHE=$PWD/caches/gocache
+          output=$PWD/artifacts
+          target=$PWD/artifact
+          mkdir -p artifacts
+
+          _apk() { apk --no-progress --cache-dir $PWD/caches/apk ${@} ; }
+          _apk update
+          _apk add git
+
+          cd source-code
+
+          CGO_ENABLED=0 go test ./...
+          CGO_ENABLED=0 \
+            go run ./cmd/bumper \
+              -o $output/artifact-version \
+              -c $output/commitlog
+
+          cat $output/artifact-version
+          cat $output/commitlog
+
+          for platform in $PLATFORMS
+          do
+            export GOOS=${platform%/*}
+            export GOARCH=${platform#*/}
+            test "$GOOS" = "windows" && ext=".exe" || ext=""
+
+            artifact=${NAME}-${GOOS}-${GOARCH}${ext}
+
+            echo "Building $artifact for $platform"
+
+            CGO_ENABLED=0 go build \
+              -a -tags netgo \
+              -ldflags '-w' \
+              -o $output/$artifact \
+              ./cmd/bumper
+          done
+
+          cd $output/
+          sha256sum ${NAME}-*
+          du -sh *
+          tar cvzf $target/semver-bumper.tgz *
+
+  - put: rc-artifact
+    params:
+      file: artifact/semver-bumper.tgz
+
+- name: release
+  serial: true
+  serial_groups: [ version ]
+  plan:
+  - in_parallel:
+    - get: source-code
+      passed: [ build ]
+    - get: rc-artifact
+      passed: [ build ]
+
+  - task: extract
+    config:
+      <<: *rc_task_config
+      inputs:
+      - name: rc-artifact
+      outputs:
+      - name: unpacked
+      run:
+        path: tar
+        args:
+        - -zvxf
+        - rc-artifact/semver-bumper-rc.tgz
+        - -C
+        - unpacked
+
+  - task: notes
+    config:
+      <<: *rc_task_config
+      inputs:
+      - name: unpacked
+      outputs:
+      - name: notes
+      run:
+        path: sh
+        args:
+        - -ec
+        - |
+          version=$(cat unpacked/artifact-version)
+
+          echo main > notes/commitish
+          cat > notes/name <<EOT
+          v$version
+          EOT
+
+          cat notes/name > notes/notes
+
+          while read hash message
+          do
+            test -n "$hash" || continue
+            echo "${hash:0:8} $message"
+          done \
+          < unpacked/commitlog \
+          >> notes/notes
+
+  - put: source-code
+    params:
+      repository: source-code
+      only_tag: true
+      tag: unpacked/artifact-version
+      tag_prefix: v
+
+  - put: release
+    params:
+      name: notes/name
+      tag: unpacked/artifact-version
+      tag_prefix: v
+      body: notes/notes
+      commitish: notes/commitish
+      globs:
+      - unpacked/semver-bumper-*
+
+- name: pipeline
+  serial: true
+  plan:
+  - get: pipeline
+    trigger: true
+  - set_pipeline: semver-bumper
+    file: pipeline/ci/pipeline.yml
+
+resources:
+- name: source-code
+  <<: *repo
+  source:
+    <<: *repo_source
+    fetch_tags: true
+    ignore_paths:
+    - ci
+    - README.md
+    - .gitignore
+    - Taskfile.yml
+
+- name: rc-artifact
+  <<: *artifact
+  source:
+    <<: *artifact_source
+    versioned_file: short/semver-bumper-rc.tgz
+
+- name: release
+  type: github-release
+  icon: folder-open
+  check_every: 24h
+  source:
+    owner: timotto
+    repository: semver-bumper
+    access_token: ((github.access_token))
+
+- name: pipeline
+  <<: *repo
+  source:
+    <<: *repo_source
+    paths:
+    - ci/pipeline.yml
+
+resource_types:
+- name: github-release
+  type: registry-image
+  source:
+    repository: concourse/github-release-resource
+    tag: "1.5.5"
