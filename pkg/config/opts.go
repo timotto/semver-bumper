@@ -18,7 +18,7 @@ type FallbackStrategy int
 
 type Options struct {
 	ConfigFile  string `json:"-" yaml:"-" short:"C" long:"config-file" description:"load parameters from a JSON or YAML file"`
-	Prerelease  string `json:"pre,omitempty" yaml:"prerelease,omitempty" short:"p" long:"pre" description:"bump prerelease with given keyword, eg \"rc\" for \"1.2.3-rc.4\"'"`
+	Prerelease  string `json:"pre,omitempty" yaml:"pre,omitempty" short:"p" long:"pre" description:"bump prerelease with given keyword, eg \"rc\" for \"1.2.3-rc.4\"'"`
 	TagPrefix   string `json:"tag_prefix,omitempty" yaml:"tag_prefix,omitempty" short:"t" long:"tag-prefix" description:"only detect tags matching the expression, eg \"v\" for \"v1.2.3\""`
 	NoMatchBump string `json:"no_match_bump,omitempty" yaml:"no_match_bump,omitempty" short:"n" long:"no-match-bump" choice:"none" choice:"patch" description:"bump patch or nothing when no commits match"`
 
