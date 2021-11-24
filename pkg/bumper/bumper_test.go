@@ -208,6 +208,13 @@ var _ = Describe("Bumper", func() {
 			It("returns the existing prerelease + 1",
 				expectVersion("1.1.1-almost.2"))
 		})
+		When("FakePrerelease is set", func() {
+			BeforeEach(func() {
+				cfg.FakePrerelease = "11.5.9-almost.11"
+			})
+			It("returns the given prerelease + 1",
+				expectVersion("11.5.9-almost.12"))
+		})
 	})
 })
 

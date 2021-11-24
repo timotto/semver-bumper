@@ -1,6 +1,7 @@
 package bumper
 
 import (
+	"fmt"
 	"github.com/Masterminds/semver/v3"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	. "github.com/timotto/semver-bumper/pkg/model"
@@ -9,6 +10,7 @@ import (
 type (
 	Config interface {
 		BumpPrerelease() bool
+		ShouldFakePrerelease() (string, bool)
 		InitialVersionValue() *semver.Version
 	}
 
@@ -38,9 +40,16 @@ func Bump(conf Config, repo GitRepo, esti Estimator) (*semver.Version, []*object
 		return nextRelease, commits, nil
 	}
 
-	latestPrerelease, err := repo.LatestTaggedPrerelease()
+	latestPrerelease, ok, err := fakePrerelease(conf)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if !ok {
+		latestPrerelease, err = repo.LatestTaggedPrerelease()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	if latestPrerelease == nil {
@@ -76,6 +85,20 @@ func bumpRelease(repo GitRepo, esti Estimator) (*semver.Version, []*object.Commi
 	nextRelease := bump(latestRelease, esti.BumpLevelFrom(messagesFrom(commits)))
 
 	return &nextRelease, commits, nil
+}
+
+func fakePrerelease(conf Config) (*semver.Version, bool, error) {
+	prerelease, ok := conf.ShouldFakePrerelease()
+	if !ok {
+		return nil, false, nil
+	}
+
+	version, err := semver.StrictNewVersion(prerelease)
+	if err != nil {
+		return nil, true, fmt.Errorf("cannot parse given prerelease version: %w", err)
+	}
+
+	return version, true, nil
 }
 
 func prerelease1(esti Estimator, commits []*object.Commit, v *semver.Version) (*semver.Version, []*object.Commit, error) {
