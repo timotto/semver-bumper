@@ -62,7 +62,11 @@ func (rt runtime) outputCommits(commits []*object.Commit) error {
 func format(commits []*object.Commit) string {
 	var lines []string
 	for _, commit := range commits {
-		line := fmt.Sprintf("%s %s\n", commit.Hash.String(), commit.Message)
+		msg := commit.Message
+		for strings.HasSuffix(msg, "\n") {
+			msg = strings.TrimSuffix(msg, "\n")
+		}
+		line := fmt.Sprintf("%s %s\n", commit.Hash.String(), msg)
 		lines = append(lines, line)
 	}
 

@@ -95,9 +95,9 @@ var _ = Describe("Run", func() {
 		BeforeEach(func() {
 			filename = path.Join(emptyTempDir, "expected-file")
 		})
-		It(`writes the commits into the given file formatted like "git log --format=oneline"`, func() {
+		It(`writes the commits into the given file formatted like "git log --format=oneline" but without empty lines`, func() {
 			// given there are commits
-			bed.AddCommits("commit message 1", "commit message 2", "commit with trailing LF\n")
+			bed.AddCommits("commit message 1", "commit with 3 trailing LFs\n\n\n", "commit message 2", "commit with trailing LF\n")
 
 			// when I want them to be stored in a file
 			Expect(runWithArgs(bed.Path(), "--commits", filename)).ToNot(HaveOccurred())
@@ -106,7 +106,7 @@ var _ = Describe("Run", func() {
 			// the file content
 			actualContent := fileContent(filename)
 			// and the result of "git log --format=oneline > filename"
-			expectedContent := formattedLikeLogFormatOneline(bed.Commits())
+			expectedContent := trimEmptyLines(formattedLikeLogFormatOneline(bed.Commits()))
 			// are the same
 			Expect(actualContent).To(Equal(expectedContent))
 			// and it's not an accident
@@ -419,6 +419,18 @@ func formattedLikeLogFormatOneline(commits []*object.Commit) string {
 	}
 
 	return strings.Join(lines, "")
+}
+
+func trimEmptyLines(val string) string {
+	var result []string
+	for _, item := range strings.Split(val, "\n") {
+		if item == "" {
+			continue
+		}
+		result = append(result, item)
+	}
+
+	return strings.Join(result, "\n") + "\n"
 }
 
 type encoderFn func(file *os.File) encoder
